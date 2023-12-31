@@ -346,7 +346,7 @@ OutputBuffers::BufferAction OutputBuffers::popFromStashAndRegister(
     *c2Buffer = entry.buffer;
     sp<AMessage> outputFormat = entry.format;
 
-    if (entry.notify && mFormat != outputFormat) {
+    if (entry.notify && outputFormat && mFormat != outputFormat) {
         updateSkipCutBuffer(outputFormat);
         // Trigger image data processing to the new format
         mLastImageData.clear();
@@ -522,6 +522,10 @@ bool FlexBuffersImpl::releaseSlot(
     }
     std::shared_ptr<C2Buffer> result = mBuffers[index].compBuffer.lock();
     if (!result) {
+        if (!c2buffer) {
+            clientBuffer->clearC2BufferRefs();
+            return true;
+        }
         result = clientBuffer->asC2Buffer();
         clientBuffer->clearC2BufferRefs();
         mBuffers[index].compBuffer = result;
@@ -642,6 +646,10 @@ bool BuffersArrayImpl::returnBuffer(
     ALOGV("[%s] %s: matching buffer found (index=%zu)", mName, __func__, index);
     std::shared_ptr<C2Buffer> result = mBuffers[index].compBuffer.lock();
     if (!result) {
+        if (!c2buffer) {
+            clientBuffer->clearC2BufferRefs();
+            return true;
+        }
         result = clientBuffer->asC2Buffer();
         clientBuffer->clearC2BufferRefs();
         mBuffers[index].compBuffer = result;

@@ -90,12 +90,13 @@ AudioFlinger::ThreadBase::TrackBase::TrackBase(
             pid_t creatorPid,
             uid_t clientUid,
             bool isOut,
-            alloc_type alloc,
+            const alloc_type alloc,
             track_type type,
             audio_port_handle_t portId,
             std::string metricsId)
     :   RefBase(),
         mThread(thread),
+        mAllocType(alloc),
         mClient(client),
         mCblk(NULL),
         // mBuffer, mBufferSize
@@ -277,6 +278,10 @@ AudioFlinger::ThreadBase::TrackBase::~TrackBase()
         // relying on the automatic clear() at end of scope.
         mClient.clear();
     }
+    if (mAllocType == ALLOC_LOCAL) {
+        free(mBuffer);
+        mBuffer = nullptr;
+    }
     // flush the binder command buffer
     IPCThreadState::self()->flushCommands();
 }
@@ -396,6 +401,9 @@ Status AudioFlinger::TrackHandle::getTimestamp(media::AudioTimestampInternal* ti
     *_aidl_return = mTrack->getTimestamp(legacy);
     if (*_aidl_return != OK) {
         return Status::ok();
+    }
+    if (legacy.mPosition > INT_MAX) {
+        legacy.mPosition = legacy.mPosition & INT_MAX;
     }
     *timestamp = legacy2aidl_AudioTimestamp_AudioTimestampInternal(legacy).value();
     return Status::ok();
@@ -2297,7 +2305,8 @@ AudioFlinger::PlaybackThread::PatchTrack::PatchTrack(PlaybackThread *playbackThr
               buffer, bufferSize, nullptr /* sharedBuffer */,
               AUDIO_SESSION_NONE, getpid(), audioServerAttributionSource(getpid()), flags,
               TYPE_PATCH, AUDIO_PORT_HANDLE_NONE, frameCountToBeReady),
-        PatchTrackBase(new ClientProxy(mCblk, mBuffer, frameCount, mFrameSize, true, true),
+        PatchTrackBase(mCblk ? new ClientProxy(mCblk, mBuffer, frameCount, mFrameSize, true, true)
+                        : nullptr,
                        *playbackThread, timeout)
 {
     ALOGV("%s(%d): sampleRate %d mPeerTimeout %d.%03d sec",
@@ -2881,7 +2890,8 @@ AudioFlinger::RecordThread::PatchRecord::PatchRecord(RecordThread *recordThread,
                 sampleRate, format, channelMask, frameCount,
                 buffer, bufferSize, AUDIO_SESSION_NONE, getpid(),
                 audioServerAttributionSource(getpid()), flags, TYPE_PATCH),
-        PatchTrackBase(new ClientProxy(mCblk, mBuffer, frameCount, mFrameSize, false, true),
+        PatchTrackBase(mCblk ? new ClientProxy(mCblk, mBuffer, frameCount, mFrameSize, false, true)
+                        : nullptr,
                        *recordThread, timeout)
 {
     ALOGV("%s(%d): sampleRate %d mPeerTimeout %d.%03d sec",

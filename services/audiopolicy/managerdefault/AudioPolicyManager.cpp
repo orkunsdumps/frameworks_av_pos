@@ -1106,7 +1106,12 @@ audio_io_handle_t AudioPolicyManager::getOutput(audio_stream_type_t stream)
     // and AudioSystem::getOutputSamplingRate().
 
     SortedVector<audio_io_handle_t> outputs = getOutputsForDevices(devices, mOutputs);
-    const audio_io_handle_t output = selectOutput(outputs);
+    audio_output_flags_t flags = AUDIO_OUTPUT_FLAG_NONE;
+    if (stream == AUDIO_STREAM_MUSIC &&
+        property_get_bool("audio.deep_buffer.media", false /* default_value */)) {
+        flags = AUDIO_OUTPUT_FLAG_DEEP_BUFFER;
+    }
+    const audio_io_handle_t output = selectOutput(outputs, flags);
 
     ALOGV("getOutput() stream %d selected devices %s, output %d", stream,
           devices.toString().c_str(), output);
@@ -1732,7 +1737,8 @@ status_t AudioPolicyManager::getBestMsdConfig(bool hwAvSync,
     // Compressed formats for MSD module, ordered from most preferred to least preferred.
     static const std::vector<audio_format_t> formatsOrder = {{
             AUDIO_FORMAT_IEC60958, AUDIO_FORMAT_MAT_2_1, AUDIO_FORMAT_MAT_2_0, AUDIO_FORMAT_E_AC3,
-            AUDIO_FORMAT_AC3, AUDIO_FORMAT_PCM_16_BIT }};
+            AUDIO_FORMAT_AC3, AUDIO_FORMAT_PCM_FLOAT, AUDIO_FORMAT_PCM_32_BIT,
+            AUDIO_FORMAT_PCM_8_24_BIT, AUDIO_FORMAT_PCM_24_BIT_PACKED, AUDIO_FORMAT_PCM_16_BIT }};
     static const std::vector<audio_channel_mask_t> channelMasksOrder = [](){
         // Channel position masks for MSD module, 3D > 2D > 1D ordering (most preferred to least
         // preferred).
@@ -3462,9 +3468,16 @@ audio_io_handle_t AudioPolicyManager::selectOutputForMusicEffects()
     }
 
     if (output != mMusicEffectOutput) {
-        mEffects.moveEffects(AUDIO_SESSION_OUTPUT_MIX, mMusicEffectOutput, output);
-        mpClientInterface->moveEffects(AUDIO_SESSION_OUTPUT_MIX, mMusicEffectOutput, output);
-        mMusicEffectOutput = output;
+        if (mpClientInterface->moveEffects(
+                                      AUDIO_SESSION_OUTPUT_MIX,
+                                      mMusicEffectOutput, output) != NO_ERROR
+            && mOutputs.valueFor(output)->isDuplicated()) {
+            ALOGW("gloabl effect do not support duplicating thread");
+            output = AUDIO_IO_HANDLE_NONE;
+        } else {
+            mEffects.moveEffects(AUDIO_SESSION_OUTPUT_MIX, mMusicEffectOutput, output);
+            mMusicEffectOutput = output;
+        }
     }
 
     ALOGV("selectOutputForMusicEffects selected output %d", output);
@@ -7827,6 +7840,9 @@ status_t AudioPolicyManager::checkAndSetVolume(IVolumeCurves &curves,
     }
     if (deviceTypes.empty()) {
         deviceTypes = outputDesc->devices().types();
+        index = curves.getVolumeIndex(deviceTypes);
+        ALOGD("%s if deviceTypes is change from none to device %s, need get index %d",
+                __func__, dumpDeviceTypes(deviceTypes).c_str(), index);
     }
 
     if (curves.getVolumeIndexMin() < 0 || curves.getVolumeIndexMax() < 0) {

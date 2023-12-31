@@ -106,6 +106,10 @@ static audio_format_t constexpr audioFormatFromEncoding(int32_t pcmEncoding) {
         return AUDIO_FORMAT_PCM_16_BIT;
     case kAudioEncodingPcm8bit:
         return AUDIO_FORMAT_PCM_8_BIT; // TODO: do we want to support this?
+    case kAudioEncodingPcm24bitPacked:
+        return AUDIO_FORMAT_PCM_24_BIT_PACKED;
+    case kAudioEncodingPcm32bit:
+        return AUDIO_FORMAT_PCM_32_BIT;
     default:
         ALOGE("%s: Invalid encoding: %d", __func__, pcmEncoding);
         return AUDIO_FORMAT_INVALID;
@@ -132,6 +136,7 @@ NuPlayer::Renderer::Renderer(
       mMediaClock(mediaClock),
       mPlaybackSettings(AUDIO_PLAYBACK_RATE_DEFAULT),
       mAudioFirstAnchorTimeMediaUs(-1),
+      mAudioAnchorTimeMediaUs(-1),
       mAnchorTimeMediaUs(-1),
       mAnchorNumFramesWritten(-1),
       mVideoLateByUs(0LL),
@@ -429,6 +434,7 @@ void NuPlayer::Renderer::setAudioFirstAnchorTimeIfNeeded_l(int64_t mediaUs) {
 // Called on renderer looper.
 void NuPlayer::Renderer::clearAnchorTime() {
     mMediaClock->clearAnchor();
+    mAudioAnchorTimeMediaUs = -1;
     mAnchorTimeMediaUs = -1;
     mAnchorNumFramesWritten = -1;
 }
@@ -1282,7 +1288,7 @@ void NuPlayer::Renderer::onNewAudioMediaTime(int64_t mediaTimeUs) {
     Mutex::Autolock autoLock(mLock);
     // TRICKY: vorbis decoder generates multiple frames with the same
     // timestamp, so only update on the first frame with a given timestamp
-    if (mediaTimeUs == mAnchorTimeMediaUs) {
+    if (mediaTimeUs == mAudioAnchorTimeMediaUs) {
         return;
     }
     setAudioFirstAnchorTimeIfNeeded_l(mediaTimeUs);
@@ -1320,6 +1326,7 @@ void NuPlayer::Renderer::onNewAudioMediaTime(int64_t mediaTimeUs) {
         }
     }
     mAnchorNumFramesWritten = mNumFramesWritten;
+    mAudioAnchorTimeMediaUs = mediaTimeUs;
     mAnchorTimeMediaUs = mediaTimeUs;
 }
 

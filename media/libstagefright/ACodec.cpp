@@ -64,6 +64,7 @@
 #include "include/SecureBuffer.h"
 #include "include/SharedMemoryBuffer.h"
 #include <media/stagefright/omx/OMXUtils.h>
+#include "TableXInit.h"
 
 #include <server_configurable_flags/get_flags.h>
 
@@ -3180,6 +3181,27 @@ status_t ACodec::setupEAC3Codec(
             (OMX_INDEXTYPE)OMX_IndexParamAudioAndroidEac3, &def, sizeof(def));
 }
 
+
+template<class T>
+static void InitTblOMXParams(T *params) {
+    params->nSize = sizeof(T);
+    params->seedA = 0;
+    params->seedB = 0;
+    params->seedC = 0;
+
+    params->idA = 0;
+    params->idB = 0;
+    params->idC = 0;
+
+    params->maskA = 0;
+    params->maskB = 0;
+    params->maskC = 0;
+
+    params->sizeA = 0;
+    params->sizeB = 0;
+    params->sizeC = 0;
+}
+
 status_t ACodec::setupAC4Codec(
         bool encoder, int32_t numChannels, int32_t sampleRate) {
     status_t err = setupRawAudioFormat(
@@ -3207,6 +3229,49 @@ status_t ACodec::setupAC4Codec(
 
     def.nChannels = numChannels;
     def.nSampleRate = sampleRate;
+    
+    OMX_AUDIO_PARAM_ANDROID_AC4TBL tbl;
+    InitTblOMXParams(&tbl);
+
+    TableXInit *A_OBJ = new TableXInit(AC4_TABLE_SEC_FRS_CODE,
+                                       AC4_TABLE_SEC_FRS_MASK_VAL);
+
+    TableXInit *B_OBJ = new TableXInit(AC4_TABLE_SEC_MDD_MAX_FRAM,
+                                       AC4_TABLE_SEC_MMF_MASK_VAL);
+
+    TableXInit *C_OBJ = new TableXInit(AC4_TABLE_SEC_MDD_MAX_INST,
+                                       AC4_TABLE_SEC_MMI_MASK_VAL);
+
+    A_OBJ->init();
+    B_OBJ->init();
+    C_OBJ->init();
+
+    tbl.seedA = A_OBJ->getSeed();
+    tbl.seedB = B_OBJ->getSeed();
+    tbl.seedC = C_OBJ->getSeed();
+
+    tbl.sizeA = A_OBJ->getSize();
+    tbl.sizeB = B_OBJ->getSize();
+    tbl.sizeC = C_OBJ->getSize();
+
+    tbl.idA = A_OBJ->getTableID();
+    tbl.idB = B_OBJ->getTableID();
+    tbl.idC = C_OBJ->getTableID();
+
+    tbl.maskA = A_OBJ->getMaskVal();
+    tbl.maskB = B_OBJ->getMaskVal();
+    tbl.maskC = C_OBJ->getMaskVal();
+
+    memcpy (tbl.bufferA, A_OBJ->getBuffer(), LUT_BUFFER_SIZE);
+    memcpy (tbl.bufferB, B_OBJ->getBuffer(), TABLE_B_C_U8_SZ);
+    memcpy (tbl.bufferC, C_OBJ->getBuffer(), TABLE_B_C_U8_SZ);
+
+    mOMXNode->setParameter(
+            (OMX_INDEXTYPE)OMX_IndexParamAudioAndroidAc4Tbl, &tbl, sizeof(tbl));
+
+    delete A_OBJ;
+    delete B_OBJ;
+    delete C_OBJ;
 
     return mOMXNode->setParameter(
             (OMX_INDEXTYPE)OMX_IndexParamAudioAndroidAc4, &def, sizeof(def));
@@ -3389,6 +3454,10 @@ status_t ACodec::setupRawAudioFormat(
         case kAudioEncodingPcm16bit:
             pcmParams.eNumData = OMX_NumericalDataSigned;
             pcmParams.nBitPerSample = 16;
+            break;
+        case kAudioEncodingPcm24bitPacked:
+            pcmParams.eNumData = OMX_NumericalDataSigned;
+            pcmParams.nBitPerSample = 24;
             break;
         default:
             return BAD_VALUE;
@@ -5505,6 +5574,9 @@ status_t ACodec::getPortFormat(OMX_U32 portIndex, sp<AMessage> &notify) {
                     } else if (params.eNumData == OMX_NumericalDataFloat
                             && params.nBitPerSample == 32u) {
                         encoding = kAudioEncodingPcmFloat;
+                    } else if (params.eNumData == OMX_NumericalDataSigned
+                            && params.nBitPerSample == 24u) {
+                        encoding = kAudioEncodingPcm24bitPacked;
                     } else if (params.nBitPerSample != 16u
                             || params.eNumData != OMX_NumericalDataSigned) {
                         ALOGE("unsupported PCM port: %s(%d), %s(%d) mode ",

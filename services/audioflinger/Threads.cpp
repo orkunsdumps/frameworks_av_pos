@@ -2340,6 +2340,16 @@ sp<AudioFlinger::PlaybackThread::Track> AudioFlinger::PlaybackThread::createTrac
         outputFlags = (audio_output_flags_t)(outputFlags | AUDIO_OUTPUT_FLAG_FAST);
     }
 
+    // If a PCM track is routed to a direct sink, set the direct flag
+    // to ensure that the AudioTrack is aware of the different behavior,
+    // e.g. for hw flush.
+    if ((outputFlags & AUDIO_OUTPUT_FLAG_DIRECT) == AUDIO_OUTPUT_FLAG_DIRECT
+                && (*flags & AUDIO_OUTPUT_FLAG_DIRECT) != AUDIO_OUTPUT_FLAG_DIRECT) {
+        *flags = (audio_output_flags_t)(*flags | AUDIO_OUTPUT_FLAG_DIRECT);
+        ALOGD("%s: track flags %#x add AUDIO_OUTPUT_FLAG_DIRECT to match sink flags %#x",
+                __func__, *flags, outputFlags);
+    }
+
     // Check if requested flags are compatible with output stream flags
     if ((*flags & outputFlags) != *flags) {
         ALOGW("createTrack_l(): mismatch between requested flags (%08x) and output flags (%08x)",
@@ -4696,7 +4706,8 @@ status_t AudioFlinger::PlaybackThread::handleVoipVolume_l(float *volume)
     if ((mOutput->flags & AUDIO_OUTPUT_FLAG_VOIP_RX) != 0) {
         if (*volume != mLeftVolFloat) {
             result = mOutput->stream->setVolume(*volume, *volume);
-            ALOGE_IF(result != OK,
+            // HAL can return INVALID_OPERATION if operation is not supported.
+            ALOGE_IF(result != OK && result != INVALID_OPERATION,
                      "Error when setting output stream volume: %d", result);
             if (result == NO_ERROR) {
                 mLeftVolFloat = *volume;
